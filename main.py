@@ -5,8 +5,8 @@ import discord
 from discord.ext import commands
 import asyncio
 
-TOKEN = 'YOUR_DISCORD_BOT_TOKEN'
-CHANNEL_ID = 'YOUR_DISCORD_CHANNEL_ID'
+TOKEN = 'TOKEN_DC_BOT'
+CHANNEL_ID = 'CHANNEL_ID_LOGS'
 
 bot = commands.Bot(command_prefix='!')
 
@@ -20,7 +20,6 @@ cur.execute("""CREATE TABLE IF NOT EXISTS coupon(
 db.commit()
 
 url = 'https://couponscorpion.com/'
-bot.loop.create_task(scrape_coupons_periodically())
 
 async def scrape_coupons_periodically():
     await bot.wait_until_ready()
@@ -46,8 +45,8 @@ async def on_ready():
 
 @bot.command()
 async def ping(ctx):
-    latency = round(bot.latency * 1000)  # Convert to milliseconds
-    await ctx.send(f'✔️ Latency is {latency}ms')
+    latency = round(bot.latency * 1000)
+    await ctx.send(f'Pong! Latency is {latency}ms')
 
 @bot.command()
 async def sent_coupons_count(ctx):
@@ -58,7 +57,13 @@ async def sent_coupons_count(ctx):
 @bot.command()
 async def latest_coupon(ctx):
     coupons = BeautifulSoup(requests.get(url).text, 'lxml')
-    latest_coupon = coupons.find('h3', class_="flowhidden mb10 fontnormal position-relative").a['href']
-    await ctx.send(f'Latest coupon: {latest_coupon}')
+    latest_coupon_element = coupons.find('h3', class_="flowhidden mb10 fontnormal position-relative")
+    if latest_coupon_element:
+        latest_coupon = latest_coupon_element.a['href']
+        await ctx.send(f'Latest coupon: {latest_coupon}')
+    else:
+        await ctx.send("No latest coupon found.")
+
+bot.loop.create_task(scrape_coupons_periodically())
 
 bot.run(TOKEN)
