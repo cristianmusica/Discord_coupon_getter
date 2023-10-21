@@ -1,23 +1,15 @@
 import requests
 from bs4 import BeautifulSoup
 import sqlite3
-import telebot
-import argparse
+import discord
+from discord.ext import commands
+import asyncio
 
-# This is the code for my personal bot posting to the https://t.me/scudemy telegram channel.
-# Feel free to subscribe to the channel if you would like to receive information about fresh
-# coupons or check out the bot operation in production.
+TOKEN = 'YOUR_DISCORD_BOT_TOKEN'
+CHANNEL_ID = 'YOUR_DISCORD_CHANNEL_ID'
 
-# Argument parsing
-parser = argparse.ArgumentParser()
-parser.add_argument('token', help='Telegram bot token')
-parser.add_argument('chat', help='Telegram chat id')
-args = parser.parse_args()
+bot = commands.Bot(command_prefix='!')
 
-# Telegram Bot
-bot = telebot.TeleBot(args.token)
-
-# Database
 db = sqlite3.connect('couponscorpion.db')
 cur = db.cursor()
 
@@ -27,20 +19,46 @@ cur.execute("""CREATE TABLE IF NOT EXISTS coupon(
 )""")
 db.commit()
 
-# Coupon website scraper
 url = 'https://couponscorpion.com/'
-coupons = BeautifulSoup(requests.get(url).text, 'lxml')
-couponsurl = [x.a.get('href') for x in coupons.findAll('h3', class_="flowhidden mb10 fontnormal position-relative")]
+bot.loop.create_task(scrape_coupons_periodically())
 
-for i in couponsurl:
-    cur.execute("SELECT count(*) FROM coupon WHERE url = ?", (i,))
-    if (cur.fetchall()[0][0]) == 0:
-        # Sending to telegram channel
-        bot.send_message(args.chat, i)
-        # Adding database record
-        cur.execute("INSERT INTO coupon (url, timestamp) VALUES (?, strftime('%s','now'))", (i,))
+async def scrape_coupons_periodically():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        coupons = BeautifulSoup(requests.get(url).text, 'lxml')
+        couponsurl = [x.a.get('href') for x in coupons.findAll('h3', class_="flowhidden mb10 fontnormal position-relative")]
+
+        for i in couponsurl:
+            cur.execute("SELECT count(*) FROM coupon WHERE url = ?", (i,))
+            if (cur.fetchall()[0][0]) == 0:
+                channel = bot.get_channel(int(CHANNEL_ID))
+                await channel.send(i)
+                cur.execute("INSERT INTO coupon (url, timestamp) VALUES (?, strftime('%s','now'))", (i,))
+                db.commit()
+
+        cur.execute("DELETE FROM coupon WHERE timestamp < strftime('%s','now') - 30*24*60*60")
         db.commit()
+        await asyncio.sleep(3600)
 
-# Deleting ald records
-cur.execute("DELETE FROM coupon WHERE timestamp < strftime('%s','now') - 30*24*60*60")
-db.commit()
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name} ({bot.user.id})')
+
+@bot.command()
+async def ping(ctx):
+    latency = round(bot.latency * 1000)  # Convert to milliseconds
+    await ctx.send(f'✔️ Latency is {latency}ms')
+
+@bot.command()
+async def sent_coupons_count(ctx):
+    cur.execute("SELECT COUNT(*) FROM coupon")
+    count = cur.fetchone()[0]
+    await ctx.send(f'Total coupons sent: {count}')
+
+@bot.command()
+async def latest_coupon(ctx):
+    coupons = BeautifulSoup(requests.get(url).text, 'lxml')
+    latest_coupon = coupons.find('h3', class_="flowhidden mb10 fontnormal position-relative").a['href']
+    await ctx.send(f'Latest coupon: {latest_coupon}')
+
+bot.run(TOKEN)
